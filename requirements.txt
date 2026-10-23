@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+psycopg[binary]
+python-dotenv
+pydantic[email]
+pwdlib[argon2]
+PyJWT
+email-validator
+streamlit
+requests
+pandas
