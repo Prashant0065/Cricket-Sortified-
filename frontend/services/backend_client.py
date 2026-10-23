@@ -5,12 +5,26 @@ import requests
 import streamlit as st
 
 
-API_BASE_URL = os.getenv(
-    "API_BASE_URL",
-    "http://127.0.0.1:8000",
-).rstrip("/")
+DEFAULT_API_BASE_URL = "https://cricket-sortified.onrender.com"
+REQUEST_TIMEOUT = 30
 
-REQUEST_TIMEOUT = 15
+
+def _get_api_base_url():
+    url = os.getenv("API_BASE_URL", "").strip()
+
+    if not url:
+        try:
+            url = str(st.secrets.get("API_BASE_URL", "")).strip()
+        except Exception:
+            url = ""
+
+    if not url:
+        url = DEFAULT_API_BASE_URL
+
+    return url.rstrip("/")
+
+
+API_BASE_URL = _get_api_base_url()
 
 
 class BackendAPIError(Exception):
@@ -21,7 +35,7 @@ class BackendAPIError(Exception):
 
 def api_request(method, endpoint, token=None, payload=None, params=None):
     url = f"{API_BASE_URL}/{endpoint.lstrip('/')}"
-    headers = {}
+    headers = {"Accept": "application/json"}
 
     if token:
         headers["Authorization"] = f"Bearer {token}"
@@ -37,16 +51,20 @@ def api_request(method, endpoint, token=None, payload=None, params=None):
         )
     except requests.exceptions.Timeout as error:
         raise BackendAPIError(
-            "The backend took too long to respond. Please try again."
+            "The backend request timed out. Please try again."
         ) from error
     except requests.exceptions.ConnectionError as error:
         raise BackendAPIError(
-            "Cannot connect to the backend. Make sure FastAPI is running."
+            "Cannot reach the deployed backend. Please check the "
+            "Render service and API_BASE_URL configuration."
         ) from error
     except requests.exceptions.RequestException as error:
         raise BackendAPIError(
             "A network error occurred while contacting the backend."
         ) from error
+
+    if response.status_code == 204:
+        return {}
 
     try:
         data = response.json()
@@ -54,7 +72,11 @@ def api_request(method, endpoint, token=None, payload=None, params=None):
         data = {}
 
     if not response.ok:
-        detail = data.get("detail", "The request failed.")
+        detail = (
+            data.get("detail", data.get("message", "The request failed."))
+            if isinstance(data, dict)
+            else "The request failed."
+        )
 
         if isinstance(detail, list):
             detail = "; ".join(
@@ -64,11 +86,10 @@ def api_request(method, endpoint, token=None, payload=None, params=None):
                 for item in detail
             )
 
-        error = BackendAPIError(
+        raise BackendAPIError(
             f"HTTP {response.status_code}: {detail}",
             status_code=response.status_code,
         )
-        raise error
 
     return data
 
@@ -125,11 +146,11 @@ def login(identifier, password):
 
 
 def get_current_user(token):
-    return api_request(
-        "GET",
-        "/auth/me",
-        token=token,
-    )
+    return api_request("GET", "/auth/me", token=token)
+
+
+def logout(token):
+    return api_request("POST", "/auth/logout", token=token)
 
 
 def get_batting_leaderboard(token):
@@ -163,10 +184,27 @@ def get_player_stats(token, player_id):
         token=token,
     )
 
-def logout(token):
+
+def get_match_overview(token):
     return api_request(
-        "POST",
-        "/auth/logout",
+        "GET",
+        "/analytics/match-overview",
+        token=token,
+    )
+
+
+def get_team_match_stats(token):
+    return api_request(
+        "GET",
+        "/analytics/team-match-stats",
+        token=token,
+    )
+
+
+def get_match_status_summary(token):
+    return api_request(
+        "GET",
+        "/analytics/match-status-summary",
         token=token,
     )
 
@@ -182,7 +220,7 @@ def get_live_matches(token):
 def get_match_scorecard(match_id: int, token: str):
     return api_request(
         "GET",
-        f"/cricbuzz/match-scorecard/{match_id}",
+        f"/cricbuzz/match-scorecard/{int(match_id)}",
         token=token,
     )
 
@@ -224,31 +262,5 @@ def get_cricbuzz_player_bowling(token, player_id):
     return api_request(
         "GET",
         f"/cricbuzz/players/{int(player_id)}/bowling",
-        token=token,
-    )
-
-
-
-
-def get_match_overview(token):
-    return api_request(
-        "GET",
-        "/analytics/match-overview",
-        token=token,
-    )
-
-
-def get_team_match_stats(token):
-    return api_request(
-        "GET",
-        "/analytics/team-match-stats",
-        token=token,
-    )
-
-
-def get_match_status_summary(token):
-    return api_request(
-        "GET",
-        "/analytics/match-status-summary",
         token=token,
     )
